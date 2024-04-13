@@ -1,3 +1,15 @@
+"""PID controller
+
+A minimal PID controller. 
+
+Example usage:
+from tinypid import pid
+
+controller = pid.PID()
+
+output = controller(10)
+
+"""
 from typing import Optional, Tuple
 
 
@@ -95,7 +107,9 @@ class PID:
 
         return saturated, output
 
-    def __call__(self, process_variable : float, manual_output: Optional[float] = None, anti_windup: bool = True) -> float:
+    def __call__(
+        self, process_variable: float, manual_output: Optional[float] = None, anti_windup: bool = True
+    ) -> float:
         """
         Process the input signal and return the controller output.
 
@@ -110,9 +124,7 @@ class PID:
 
         self.P = self.K_p * error
         self.I = self.K_i * self.integral
-        self.D = self.K_d * (
-            self.alpha * derivative + (1 - self.alpha) * self._previous_derivative
-        )
+        self.D = self.K_d * (self.alpha * derivative + (1 - self.alpha) * self._previous_derivative)
 
         output = self.P + self.I + self.D
 
@@ -127,12 +139,14 @@ class PID:
 
         if manual_output:
             # Use setpoint tracking by calculating integral so that the output matches the manual setpoint
-            self.integral = -(self.P + self.D - manual_output) / self.K_i
+            self.integral = -(self.P + self.D - manual_output) / self.K_i if self.K_i != 0 else 0
             output = manual_output
 
         return output
 
     def __repr__(self):
-        return (f"PID controller\nSetpoint: {self.setpoint}, Output: {self.P + self.I + self.D}\n"
-                f"P: {self.P}, I: {self.I}, D: {self.D}\n"\
-                f"Limits: {self.lower_limit} < output < {self.upper_limit}")
+        return (
+            f"PID controller\nSetpoint: {self.setpoint}, Output: {self.P + self.I + self.D}\n"
+            f"P: {self.P}, I: {self.I}, D: {self.D}\n"
+            f"Limits: {self.lower_limit} < output < {self.upper_limit}"
+        )
