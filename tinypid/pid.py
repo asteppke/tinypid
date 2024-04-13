@@ -3,9 +3,9 @@
 A minimal PID controller. 
 
 Example usage:
-from tinypid import pid
+import tinypid 
 
-controller = pid.PID()
+controller = tinypid.PID()
 
 output = controller(10)
 
@@ -48,6 +48,8 @@ class PID:
         """
         if dt <= 0:
             raise ValueError("Time step (dt) must be positive.")
+        if not 0 <= derivative_lowpass <= 1:
+            raise ValueError("derivative_lowpass must be between 0 and 1")
 
         self.K_p = K_p
         self.K_i = K_i
@@ -106,6 +108,19 @@ class PID:
         saturated = output != unlimited
 
         return saturated, output
+    
+    def update_gains(self, K_p: float, K_i: float, K_d: float) -> None:
+        """
+        Update the PID gains.
+
+        Parameters:
+            K_p : The new proportional gain
+            K_i : The new integral gain
+            K_d : The new derivative gain
+        """
+        self.K_p = K_p
+        self.K_i = K_i
+        self.K_d = K_d
 
     def __call__(
         self, process_variable: float, manual_output: Optional[float] = None, anti_windup: bool = True
