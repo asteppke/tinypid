@@ -1,9 +1,9 @@
 """PID controller
 
-A minimal PID controller. 
+A minimal PID controller.
 
 Example usage:
-import tinypid 
+import tinypid
 
 controller = tinypid.PID()
 
@@ -18,6 +18,7 @@ class Gain:
     """
     A simple class to store PID gains and the setpoint range for which they apply.
     """
+
     def __init__(self, setpoint_scope: Tuple[float, float], k_p: float, k_i: float, k_d: float) -> None:
         """
         Initializes a Gain object with a setpoint range and PID gains.
@@ -76,7 +77,7 @@ class PID:
         self.k_p = k_p
         self.k_i = k_i
         self.k_d = k_d
-        self.P, self.I, self.D = None, None, None
+        self.P, self.I, self.D = 0.0, 0.0, 0.0
         self.dt = dt
         self.alpha = derivative_lowpass
         self._setpoint = setpoint
@@ -88,10 +89,11 @@ class PID:
 
     def reset(self) -> None:
         """
-        Clear the history.
+        Clear the history and reset the controller state.
         """
-        self.integral = 0
-        self._previous_error = 0
+        self.integral = 0.0
+        self._previous_error = 0.0
+        self._previous_derivative = 0.0
 
     @property
     def setpoint(self) -> float:
@@ -109,7 +111,8 @@ class PID:
             value : The new setpoint.
         """
         self._setpoint = value
-        self._previous_error = 0
+        self._previous_error = 0.0
+        self._previous_derivative = 0.0
 
     def limit(self, output: float) -> Tuple[bool, float]:
         """
@@ -160,7 +163,7 @@ class PID:
 
         error = self._setpoint - process_variable
         self.integral += error * self.dt
-        derivative = (error - self._previous_error) / self.dt if self.dt != 0 else 0
+        derivative = (error - self._previous_error) / self.dt
 
         self.P = self.k_p * error
         self.I = self.k_i * self.integral
@@ -226,12 +229,13 @@ class PIDGainScheduler(PID):
         self.gains = gains
         self.update_gain(setpoint)
 
-    def update_gain(self, setpoint: float) -> Tuple[float, float, float]:
+    def update_gain(self, setpoint: float) -> None:
         """
         Update the PID gains based on the current setpoint
 
         Parameters:
             output : The current output
+            setpoint : The current setpoint to find gains for
         """
         for gain in self.gains:
             lower, upper = gain.setpoint_scope
