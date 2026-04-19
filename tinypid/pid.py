@@ -11,29 +11,21 @@ output = controller(10)
 
 """
 
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 
+@dataclass
 class Gain:
     """
     A simple class to store PID gains and the setpoint range for which they apply.
+    The range is inclusive of the lower bound and exclusive of the upper bound.
     """
 
-    def __init__(self, setpoint_scope: Tuple[float, float], k_p: float, k_i: float, k_d: float) -> None:
-        """
-        Initializes a Gain object with a setpoint range and PID gains.
-
-        Parameters:
-            setpoint_scope: The range of setpoints for which these gains apply.
-            The range is inclusive of the lower bound and exclusive of the upper bound.
-            k_p : The proportional gain.
-            k_i : The integral gain.
-            k_d : The derivative gain.
-        """
-        self.setpoint_scope = setpoint_scope
-        self.k_p = k_p
-        self.k_i = k_i
-        self.k_d = k_d
+    setpoint_scope: Tuple[float, float]
+    k_p: float
+    k_i: float
+    k_d: float
 
 
 class PID:
@@ -48,12 +40,12 @@ class PID:
 
     def __init__(
         self,
-        k_p: float = 1,
+        k_p: float = 1.0,
         k_i: float = 0.1,
-        k_d: float = 0,
-        setpoint: float = 0,
-        dt: float = 1,
-        derivative_lowpass: float = 1,
+        k_d: float = 0.0,
+        setpoint: float = 0.0,
+        dt: float = 1.0,
+        derivative_lowpass: float = 1.0,
         upper_limit: Optional[float] = None,
         lower_limit: Optional[float] = None,
     ) -> None:
@@ -81,9 +73,9 @@ class PID:
         self.dt = dt
         self.alpha = derivative_lowpass
         self._setpoint = setpoint
-        self.integral = 0
-        self._previous_error = 0
-        self._previous_derivative = 0
+        self.integral = 0.0
+        self._previous_error = 0.0
+        self._previous_derivative = 0.0
         self.upper_limit = upper_limit
         self.lower_limit = lower_limit
 
@@ -105,7 +97,7 @@ class PID:
     @setpoint.setter
     def setpoint(self, value: float) -> None:
         """
-        Set the setpoint.
+        Set the setpoint and reset the controller state to avoid derivative kick and integral windup.
 
         Parameters:
             value : The new setpoint.
@@ -114,7 +106,8 @@ class PID:
         self._previous_error = 0.0
         self._previous_derivative = 0.0
 
-    def limit(self, output: float) -> Tuple[bool, float]:
+
+    def _limit(self, output: float) -> Tuple[bool, float]:
         """
         Limits the output to the specified bounds.
 
@@ -157,6 +150,7 @@ class PID:
         Process the input signal and return the controller output.
 
         Parameters:
+            process_variable : The current value of the process variable.
             manual_output: Manually controlled output value (optional).
             anti_windup : Whether to enable anti-windup mechanism.
         """
@@ -174,22 +168,22 @@ class PID:
         self._previous_error = error
         self._previous_derivative = derivative
 
-        saturated, output = self.limit(output)
+        saturated, output = self._limit(output)
 
         if saturated and anti_windup:
             # Don't increase integral if we are saturated
             self.integral -= error * self.dt
 
-        if manual_output:
+        if manual_output is not None:
             # Use setpoint tracking by calculating integral so that the output matches the manual setpoint
             self.integral = -(self.P + self.D - manual_output) / self.k_i if self.k_i != 0 else 0
             output = manual_output
 
         return output
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
-            f"PID controller\nSetpoint: {self.setpoint}, Output: {self.P + self.I + self.D}\n"
+            f"PID controller\nSetpoint: {self.setpoint}, Unlimited output: {self.P + self.I + self.D}\n"
             f"P: {self.P}, I: {self.I}, D: {self.D}\n"
             f"Limits: {self.lower_limit} < output < {self.upper_limit}"
         )
@@ -206,9 +200,9 @@ class PIDGainScheduler(PID):
     def __init__(
         self,
         gains: List[Gain],
-        setpoint: float = 0,
-        dt: float = 1,
-        derivative_lowpass: float = 1,
+        setpoint: float = 0.0,
+        dt: float = 1.0,
+        derivative_lowpass: float = 1.0,
         upper_limit: Optional[float] = None,
         lower_limit: Optional[float] = None,
     ) -> None:
@@ -224,17 +218,16 @@ class PIDGainScheduler(PID):
             lower_limit : Lower limit for the output
         """
 
-        super().__init__(None, None, None, setpoint, dt, derivative_lowpass, upper_limit, lower_limit)
+        super().__init__(0.0, 0.0, 0.0, setpoint, dt, derivative_lowpass, upper_limit, lower_limit)
 
         self.gains = gains
-        self.update_gain(setpoint)
+        self.update_gains_from_setpoint(setpoint)
 
-    def update_gain(self, setpoint: float) -> None:
+    def update_gains_from_setpoint(self, setpoint: float) -> None:
         """
         Update the PID gains based on the current setpoint
 
         Parameters:
-            output : The current output
             setpoint : The current setpoint to find gains for
         """
         for gain in self.gains:
@@ -251,7 +244,7 @@ class PIDGainScheduler(PID):
         manual_output: Optional[float] = None,
         anti_windup: bool = True,
     ) -> float:
-        self.update_gain(self.setpoint)
+        self.update_gains_from_setpoint(self.setpoint)
 
         output = super().__call__(process_variable, manual_output, anti_windup)
         return output
