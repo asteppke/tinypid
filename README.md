@@ -10,3 +10,5 @@ Optional features:
 - Bumpless transfer between manual and automatic control
 - Gain scheduling
 
+![PID control example](examples/control_example.png)
+
