@@ -1,5 +1,5 @@
 import unittest
-from tinypid import PID, Gain, PIDGainScheduler
+from tinypid import PID, Gain, PIDGainScheduler, FeedforwardMixin
 
 
 class TestPID(unittest.TestCase):
@@ -120,6 +120,48 @@ class TestGainSchedule(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             pid.update_gains_from_setpoint(40)
+
+
+class FeedforwardPID(FeedforwardMixin, PID):
+    pass
+
+
+class FeedforwardGainSchedulerPID(FeedforwardMixin, PIDGainScheduler):
+    pass
+
+
+class TestFeedforwardMixin(unittest.TestCase):
+    def test_feedforward_added_to_output(self):
+        # Pure proportional controller at error=0; feedforward should be the entire output.
+        pid = FeedforwardPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=5.0, k_ff=1.0)
+        output = pid(5.0, feedforward=3.0)
+        self.assertAlmostEqual(output, 3.0)
+
+    def test_feedforward_scaled_by_k_ff(self):
+        # With k_ff=2 and feedforward=3 the FF contribution should be 6.
+        pid = FeedforwardPID(k_p=0.0, k_i=0.0, k_d=0.0, setpoint=0.0, k_ff=2.0)
+        output = pid(0.0, feedforward=3.0)
+        self.assertAlmostEqual(output, 6.0)
+        self.assertAlmostEqual(pid.FF, 6.0)
+
+    def test_feedforward_zero_by_default(self):
+        # Omitting feedforward arg must behave identically to a plain PID call.
+        plain = PID(k_p=1.0, k_i=0.5, k_d=0.0, setpoint=10.0, dt=1.0)
+        ff_pid = FeedforwardPID(k_p=1.0, k_i=0.5, k_d=0.0, setpoint=10.0, dt=1.0, k_ff=1.0)
+        self.assertAlmostEqual(ff_pid(8.0), plain(8.0))
+
+    def test_feedforward_applied_before_limiting(self):
+        # Output limit is 4; PID alone (P=2) + FF (3) = 5 → clamped to 4.
+        pid = FeedforwardPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=2.0, upper_limit=4.0, k_ff=1.0)
+        output = pid(0.0, feedforward=3.0)
+        self.assertAlmostEqual(output, 4.0)
+
+    def test_feedforward_composes_with_gain_scheduler(self):
+        gains = [Gain(setpoint_scope=(0, 20), k_p=1.0, k_i=0.0, k_d=0.0)]
+        pid = FeedforwardGainSchedulerPID(gains=gains, setpoint=10.0, k_ff=1.0)
+        # error = 10 - 8 = 2, P = 2, FF = 1 * 3 = 3 → output = 5
+        output = pid(8.0, feedforward=3.0)
+        self.assertAlmostEqual(output, 5.0)
 
 
 if __name__ == "__main__":

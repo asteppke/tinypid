@@ -1,1 +1,1 @@
-from .pid import PID, Gain, PIDGainScheduler
+from .pid import PID, Gain, PIDGainScheduler, FeedforwardMixin

@@ -69,7 +69,7 @@ class PID:
         self.k_p = k_p
         self.k_i = k_i
         self.k_d = k_d
-        self.P, self.I, self.D = 0.0, 0.0, 0.0
+        self.P, self.I, self.D, self.FF = 0.0, 0.0, 0.0, 0.0
         self.dt = dt
         self.alpha = derivative_lowpass
         self._setpoint = setpoint
@@ -106,6 +106,13 @@ class PID:
         self._previous_error = 0.0
         self._previous_derivative = 0.0
 
+
+    def _feedforward(self) -> float:
+        """
+        Compute the feedforward term. Returns 0.0 by default.
+        Override in subclasses or via FeedforwardMixin.
+        """
+        return 0.0
 
     def _limit(self, output: float) -> Tuple[bool, float]:
         """
@@ -162,8 +169,9 @@ class PID:
         self.P = self.k_p * error
         self.I = self.k_i * self.integral
         self.D = self.k_d * (self.alpha * derivative + (1 - self.alpha) * self._previous_derivative)
+        self.FF = self._feedforward()
 
-        output = self.P + self.I + self.D
+        output = self.P + self.I + self.D + self.FF
 
         self._previous_error = error
         self._previous_derivative = derivative
@@ -183,8 +191,8 @@ class PID:
 
     def __repr__(self) -> str:
         return (
-            f"PID controller\nSetpoint: {self.setpoint}, Unlimited output: {self.P + self.I + self.D}\n"
-            f"P: {self.P}, I: {self.I}, D: {self.D}\n"
+            f"PID controller\nSetpoint: {self.setpoint}, Unlimited output: {self.P + self.I + self.D + self.FF}\n"
+            f"P: {self.P}, I: {self.I}, D: {self.D}, FF: {self.FF}\n"
             f"Limits: {self.lower_limit} < output < {self.upper_limit}"
         )
 
@@ -248,3 +256,49 @@ class PIDGainScheduler(PID):
 
         output = super().__call__(process_variable, manual_output, anti_windup)
         return output
+
+
+class FeedforwardMixin:
+    """
+    A mixin that adds a feedforward term to any PID-based controller.
+
+    The feedforward value is passed directly to ``__call__`` at each update step.
+    It is scaled by ``k_ff`` and added to the PID output *before* output limiting,
+    so the anti-windup and saturation logic remain consistent.
+
+    Usage::
+
+        class FeedforwardPID(FeedforwardMixin, PID):
+            pass
+
+        class FeedforwardGainSchedulerPID(FeedforwardMixin, PIDGainScheduler):
+            pass
+
+        controller = FeedforwardPID(k_p=1.0, k_i=0.1, k_ff=0.5)
+        output = controller(process_variable=3.0, feedforward=setpoint_velocity)
+    """
+
+    def __init__(self, *args, k_ff: float = 1.0, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.k_ff = k_ff
+        self._ff_value: float = 0.0
+
+    def _feedforward(self) -> float:
+        return self.k_ff * self._ff_value
+
+    def __call__(
+        self,
+        process_variable: float,
+        feedforward: float = 0.0,
+        **kwargs,
+    ) -> float:
+        """
+        Parameters:
+            process_variable : The current value of the process variable.
+            feedforward : The external feedforward signal (e.g. model output or
+                          setpoint derivative). Scaled by ``k_ff`` before use.
+            **kwargs : Passed through to the underlying PID ``__call__``
+                       (``manual_output``, ``anti_windup``).
+        """
+        self._ff_value = feedforward
+        return super().__call__(process_variable, **kwargs)  # type: ignore[misc]
