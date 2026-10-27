@@ -11,8 +11,9 @@ output = controller(10)
 
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -22,7 +23,7 @@ class Gain:
     The range is inclusive of the lower bound and exclusive of the upper bound.
     """
 
-    setpoint_scope: Tuple[float, float]
+    setpoint_scope: tuple[float, float]
     k_p: float
     k_i: float
     k_d: float
@@ -46,8 +47,8 @@ class PID:
         setpoint: float = 0.0,
         dt: float = 1.0,
         derivative_lowpass: float = 1.0,
-        upper_limit: Optional[float] = None,
-        lower_limit: Optional[float] = None,
+        upper_limit: float | None = None,
+        lower_limit: float | None = None,
     ) -> None:
         """
         Initialize PID controller
@@ -114,7 +115,7 @@ class PID:
         """
         return 0.0
 
-    def _limit(self, output: float) -> Tuple[bool, float]:
+    def _limit(self, output: float) -> tuple[bool, float]:
         """
         Limits the output to the specified bounds.
 
@@ -147,10 +148,19 @@ class PID:
         self.k_i = k_i
         self.k_d = k_d
 
+    def _rewind_integral(self, error: float) -> None:
+        """
+        Undo one integration step to counteract windup.
+
+        Parameters:
+            error : The error value that was integrated in the step being undone.
+        """
+        self.integral -= error * self.dt
+
     def __call__(
         self,
         process_variable: float,
-        manual_output: Optional[float] = None,
+        manual_output: float | None = None,
         anti_windup: bool = True,
     ) -> float:
         """
@@ -180,7 +190,7 @@ class PID:
 
         if saturated and anti_windup:
             # Don't increase integral if we are saturated
-            self.integral -= error * self.dt
+            self._rewind_integral(error)
 
         if manual_output is not None:
             # Use setpoint tracking by calculating integral so that the output matches the manual setpoint
@@ -207,12 +217,12 @@ class PIDGainScheduler(PID):
 
     def __init__(
         self,
-        gains: List[Gain],
+        gains: list[Gain],
         setpoint: float = 0.0,
         dt: float = 1.0,
         derivative_lowpass: float = 1.0,
-        upper_limit: Optional[float] = None,
-        lower_limit: Optional[float] = None,
+        upper_limit: float | None = None,
+        lower_limit: float | None = None,
     ) -> None:
         """
         Initialize PID controller
@@ -249,13 +259,12 @@ class PIDGainScheduler(PID):
     def __call__(
         self,
         process_variable: float,
-        manual_output: Optional[float] = None,
+        manual_output: float | None = None,
         anti_windup: bool = True,
     ) -> float:
         self.update_gains_from_setpoint(self.setpoint)
 
-        output = super().__call__(process_variable, manual_output, anti_windup)
-        return output
+        return super().__call__(process_variable, manual_output=manual_output, anti_windup=anti_windup)
 
 
 class FeedforwardMixin:
@@ -330,10 +339,12 @@ class RateLimitMixin:
         output = controller(process_variable=3.0)
     """
 
-    def __init__(self, *args, max_output_rate: Optional[float] = None, **kwargs) -> None:
+    def __init__(self, *args, max_output_rate: float | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        if max_output_rate is not None and max_output_rate <= 0:
+            raise ValueError("max_output_rate must be positive.")
         self.max_output_rate = max_output_rate
-        self._previous_output: Optional[float] = None
+        self._previous_output: float | None = None
 
     def reset(self) -> None:
         """
@@ -343,7 +354,7 @@ class RateLimitMixin:
         super().reset()
         self._previous_output = None
 
-    def _rate_limit(self, output: float) -> Tuple[bool, float]:
+    def _rate_limit(self, output: float) -> tuple[bool, float]:
         """
         Limits how much the output may change relative to the previous step.
 
@@ -366,7 +377,7 @@ class RateLimitMixin:
     def __call__(
         self,
         process_variable: float,
-        manual_output: Optional[float] = None,
+        manual_output: float | None = None,
         anti_windup: bool = True,
         **kwargs,
     ) -> float:
@@ -387,7 +398,7 @@ class RateLimitMixin:
             saturated, output = self._rate_limit(output)
             if saturated and anti_windup:
                 # Don't let the integral keep growing if the output can't follow due to the rate limit
-                self.integral -= self._previous_error * self.dt
+                self._rewind_integral(self._previous_error)
 
         self._previous_output = output
         return output
@@ -416,10 +427,12 @@ class DeadbandMixin:
         output = controller(process_variable=3.0)
     """
 
-    def __init__(self, *args, output_deadband: Optional[float] = None, **kwargs) -> None:
+    def __init__(self, *args, output_deadband: float | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        if output_deadband is not None and output_deadband < 0:
+            raise ValueError("output_deadband must not be negative.")
         self.output_deadband = output_deadband
-        self._previous_output: Optional[float] = None
+        self._previous_output: float | None = None
 
     def reset(self) -> None:
         """

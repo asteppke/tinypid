@@ -173,6 +173,10 @@ class RateLimitedGainSchedulerPID(RateLimitMixin, PIDGainScheduler):
 
 
 class TestRateLimitMixin(unittest.TestCase):
+    def test_rate_limit_rejects_non_positive_max_output_rate(self):
+        with self.assertRaises(ValueError):
+            RateLimitedPID(k_p=1.0, k_i=0.0, k_d=0.0, max_output_rate=0.0)
+
     def test_rate_limit_restricts_output_change(self):
         # First call (error=0) establishes previous_output=0. Second call (error=10)
         # wants P = 10 * 10 = 100, but max change per step is 2.0 * dt(1.0) = 2.0.
@@ -242,6 +246,10 @@ class DeadbandGainSchedulerPID(DeadbandMixin, PIDGainScheduler):
 
 
 class TestDeadbandMixin(unittest.TestCase):
+    def test_deadband_rejects_negative_output_deadband(self):
+        with self.assertRaises(ValueError):
+            DeadbandPID(k_p=1.0, k_i=0.0, k_d=0.0, output_deadband=-0.1)
+
     def test_deadband_holds_small_output_change(self):
         # First call (error=0) establishes previous_output=0. Second call's raw
         # output (0.5) is within output_deadband=1.0 of it, so it's held at 0.
