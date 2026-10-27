@@ -1,5 +1,5 @@
 import unittest
-from tinypid import PID, Gain, PIDGainScheduler, FeedforwardMixin, RateLimitMixin
+from tinypid import PID, Gain, PIDGainScheduler, FeedforwardMixin, RateLimitMixin, DeadbandMixin
 
 
 class TestPID(unittest.TestCase):
@@ -231,6 +231,65 @@ class TestRateLimitMixin(unittest.TestCase):
         pid(10.0)  # error = 0, output = 0
         output = pid(0.0)  # error = 10, raw output = 100, limited to 0 + 2 = 2
         self.assertAlmostEqual(output, 2.0)
+
+
+class DeadbandPID(DeadbandMixin, PID):
+    pass
+
+
+class DeadbandGainSchedulerPID(DeadbandMixin, PIDGainScheduler):
+    pass
+
+
+class TestDeadbandMixin(unittest.TestCase):
+    def test_deadband_holds_small_output_change(self):
+        # First call (error=0) establishes previous_output=0. Second call's raw
+        # output (0.5) is within output_deadband=1.0 of it, so it's held at 0.
+        pid = DeadbandPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, output_deadband=1.0)
+        pid(10.0)  # error = 0, output = 0
+        output = pid(9.5)  # error = 0.5, raw output = 0.5, within deadband -> held
+        self.assertAlmostEqual(output, 0.0)
+
+    def test_deadband_passes_through_large_output_change(self):
+        pid = DeadbandPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, output_deadband=1.0)
+        pid(10.0)  # error = 0, output = 0
+        output = pid(0.0)  # error = 10, raw output = 10, exceeds deadband -> passes through
+        self.assertAlmostEqual(output, 10.0)
+
+    def test_deadband_disabled_by_default(self):
+        # Without output_deadband the mixin must behave identically to a plain PID.
+        plain = PID(k_p=1.0, k_i=0.5, k_d=0.0, setpoint=10.0, dt=1.0)
+        deadband = DeadbandPID(k_p=1.0, k_i=0.5, k_d=0.0, setpoint=10.0, dt=1.0)
+        self.assertAlmostEqual(deadband(8.0), plain(8.0))
+        self.assertAlmostEqual(deadband(8.0), plain(8.0))
+
+    def test_manual_output_is_subject_to_deadband(self):
+        # Per design, a manual override is not exempt from the dead-band.
+        pid = DeadbandPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, output_deadband=1.0)
+        pid(10.0)  # error = 0, output = 0
+        output = pid(10.0, manual_output=0.5)  # within epsilon of previous output 0 -> held
+        self.assertAlmostEqual(output, 0.0)
+
+    def test_deadband_does_not_affect_integral(self):
+        # The integral keeps accumulating normally even while the output is held.
+        pid = DeadbandPID(k_p=0.0, k_i=1.0, k_d=0.0, setpoint=10.0, dt=1.0, output_deadband=100.0)
+        pid(0.0)  # error = 10, integral = 10, output = 10 (no previous_output yet, passes through)
+        integral_after_first = pid.integral
+        pid(0.0)  # error = 10, integral = 20, raw output = 20, held at 10 due to deadband
+        self.assertGreater(pid.integral, integral_after_first)
+
+    def test_reset_clears_previous_output(self):
+        pid = DeadbandPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, output_deadband=1.0)
+        pid(0.0)
+        pid.reset()
+        self.assertIsNone(pid._previous_output)
+
+    def test_deadband_composes_with_gain_scheduler(self):
+        gains = [Gain(setpoint_scope=(0, 20), k_p=1.0, k_i=0.0, k_d=0.0)]
+        pid = DeadbandGainSchedulerPID(gains=gains, setpoint=10.0, dt=1.0, output_deadband=1.0)
+        pid(10.0)  # error = 0, output = 0
+        output = pid(9.5)  # error = 0.5, raw output = 0.5, within deadband -> held
+        self.assertAlmostEqual(output, 0.0)
 
 
 if __name__ == "__main__":

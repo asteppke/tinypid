@@ -391,3 +391,59 @@ class RateLimitMixin:
 
         self._previous_output = output
         return output
+
+
+class DeadbandMixin:
+    """
+    A mixin that suppresses small output changes to reduce actuator chatter
+    (e.g. motor noise near steady state).
+
+    If the new output is within ``output_deadband`` of the previous output,
+    the previous output is returned unchanged instead of the new value. This
+    applies uniformly to both the controller's own output and a
+    ``manual_output`` override, and it does not interact with anti-windup:
+    the integral keeps evolving normally even while the output is held.
+
+    Usage::
+
+        class DeadbandPID(DeadbandMixin, PID):
+            pass
+
+        class DeadbandGainSchedulerPID(DeadbandMixin, PIDGainScheduler):
+            pass
+
+        controller = DeadbandPID(k_p=1.0, k_i=0.1, output_deadband=0.05)
+        output = controller(process_variable=3.0)
+    """
+
+    def __init__(self, *args, output_deadband: Optional[float] = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.output_deadband = output_deadband
+        self._previous_output: Optional[float] = None
+
+    def reset(self) -> None:
+        """
+        Clear the history and reset the controller state, including the
+        remembered previous output used by the dead-band.
+        """
+        super().reset()
+        self._previous_output = None
+
+    def __call__(self, process_variable: float, **kwargs) -> float:
+        """
+        Parameters:
+            process_variable : The current value of the process variable.
+            **kwargs : Passed through to the underlying PID ``__call__``
+                       (``manual_output``, ``anti_windup``, ``feedforward``).
+        """
+        output = super().__call__(process_variable, **kwargs)  # type: ignore[misc]
+
+        if (
+            self.output_deadband is not None
+            and self._previous_output is not None
+            and abs(output - self._previous_output) <= self.output_deadband
+        ):
+            return self._previous_output
+
+        self._previous_output = output
+        return output
