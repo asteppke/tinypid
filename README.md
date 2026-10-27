@@ -10,6 +10,7 @@ Optional features:
 - Bumpless transfer between manual and automatic control
 - Gain scheduling
 - Feed forward component
+- Output rate limiting
 
 ![PID control example](examples/control_example.png)
 
@@ -17,4 +18,3 @@ Optional features:
 - Output dithering
 - No output change if we are near the setpoint, for, e.g. reducing motor noise
 - Beyond gain scheduling also schedule, limits, and anti-windup
-- Output rate limiting

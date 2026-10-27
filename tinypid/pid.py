@@ -302,3 +302,92 @@ class FeedforwardMixin:
         """
         self._ff_value = feedforward
         return super().__call__(process_variable, **kwargs)  # type: ignore[misc]
+
+
+class RateLimitMixin:
+    """
+    A mixin that restricts how fast the output may change per step
+    (slew-rate limiting), independent of the absolute output limits
+    (``upper_limit``/``lower_limit``).
+
+    Rate limiting is applied *after* the underlying controller's own output
+    (which may already be value-limited), comparing it against the output of
+    the previous step. If the change exceeds ``max_output_rate * dt``, the
+    output is clamped and, like value saturation, the integral is rewound to
+    avoid windup. A ``manual_output`` override is passed through unchanged,
+    since it represents an explicit, immediate operator command rather than
+    the controller's own output.
+
+    Usage::
+
+        class RateLimitedPID(RateLimitMixin, PID):
+            pass
+
+        class RateLimitedGainSchedulerPID(RateLimitMixin, PIDGainScheduler):
+            pass
+
+        controller = RateLimitedPID(k_p=1.0, dt=0.1, max_output_rate=2.0)
+        output = controller(process_variable=3.0)
+    """
+
+    def __init__(self, *args, max_output_rate: Optional[float] = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.max_output_rate = max_output_rate
+        self._previous_output: Optional[float] = None
+
+    def reset(self) -> None:
+        """
+        Clear the history and reset the controller state, including the
+        remembered previous output used for rate limiting.
+        """
+        super().reset()
+        self._previous_output = None
+
+    def _rate_limit(self, output: float) -> Tuple[bool, float]:
+        """
+        Limits how much the output may change relative to the previous step.
+
+        Parameters:
+            output : The candidate output for this step.
+
+        Returns:
+            tuple: A tuple containing a boolean indicating whether rate
+                   saturation occurred and the rate-limited output.
+        """
+        if self.max_output_rate is None or self._previous_output is None:
+            return False, output
+
+        max_delta = self.max_output_rate * self.dt
+        delta = output - self._previous_output
+        limited_delta = min(max(delta, -max_delta), max_delta)
+
+        return limited_delta != delta, self._previous_output + limited_delta
+
+    def __call__(
+        self,
+        process_variable: float,
+        manual_output: Optional[float] = None,
+        anti_windup: bool = True,
+        **kwargs,
+    ) -> float:
+        """
+        Parameters:
+            process_variable : The current value of the process variable.
+            manual_output : Manually controlled output value (optional).
+                             Not subject to rate limiting.
+            anti_windup : Whether to enable anti-windup mechanism.
+            **kwargs : Passed through to the underlying PID ``__call__``
+                       (e.g. ``feedforward``).
+        """
+        output = super().__call__(  # type: ignore[misc]
+            process_variable, manual_output=manual_output, anti_windup=anti_windup, **kwargs
+        )
+
+        if manual_output is None:
+            saturated, output = self._rate_limit(output)
+            if saturated and anti_windup:
+                # Don't let the integral keep growing if the output can't follow due to the rate limit
+                self.integral -= self._previous_error * self.dt
+
+        self._previous_output = output
+        return output
