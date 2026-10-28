@@ -1,5 +1,17 @@
 import unittest
-from tinypid import PID, Gain, PIDGainScheduler, FeedforwardMixin, RateLimitMixin, DeadbandMixin, DitherMixin
+from tinypid import (
+    PID,
+    Gain,
+    PIDGainScheduler,
+    FeedforwardMixin,
+    RateLimitMixin,
+    DeadbandMixin,
+    DitherMixin,
+    FeedforwardPID,
+    RateLimitedPID,
+    DeadbandPID,
+    DitheredPID,
+)
 
 
 class TestPID(unittest.TestCase):
@@ -122,10 +134,6 @@ class TestGainSchedule(unittest.TestCase):
             pid.update_gains_from_setpoint(40)
 
 
-class FeedforwardPID(FeedforwardMixin, PID):
-    pass
-
-
 class FeedforwardGainSchedulerPID(FeedforwardMixin, PIDGainScheduler):
     pass
 
@@ -162,10 +170,6 @@ class TestFeedforwardMixin(unittest.TestCase):
         # error = 10 - 8 = 2, P = 2, FF = 1 * 3 = 3 → output = 5
         output = pid(8.0, feedforward=3.0)
         self.assertAlmostEqual(output, 5.0)
-
-
-class RateLimitedPID(RateLimitMixin, PID):
-    pass
 
 
 class RateLimitedGainSchedulerPID(RateLimitMixin, PIDGainScheduler):
@@ -219,7 +223,7 @@ class TestRateLimitMixin(unittest.TestCase):
         pid = RateLimitedPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, max_output_rate=0.1)
         pid(0.0)
         pid.reset()
-        self.assertIsNone(pid._previous_output)
+        self.assertIsNone(pid._rate_limited_output)
 
     def test_rate_limit_composes_with_value_limit(self):
         # Value limit of 50 is stricter than what the rate limit alone would allow (0 + 2 = 2).
@@ -235,10 +239,6 @@ class TestRateLimitMixin(unittest.TestCase):
         pid(10.0)  # error = 0, output = 0
         output = pid(0.0)  # error = 10, raw output = 100, limited to 0 + 2 = 2
         self.assertAlmostEqual(output, 2.0)
-
-
-class DeadbandPID(DeadbandMixin, PID):
-    pass
 
 
 class DeadbandGainSchedulerPID(DeadbandMixin, PIDGainScheduler):
@@ -290,7 +290,7 @@ class TestDeadbandMixin(unittest.TestCase):
         pid = DeadbandPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, output_deadband=1.0)
         pid(0.0)
         pid.reset()
-        self.assertIsNone(pid._previous_output)
+        self.assertIsNone(pid._deadband_output)
 
     def test_deadband_composes_with_gain_scheduler(self):
         gains = [Gain(setpoint_scope=(0, 20), k_p=1.0, k_i=0.0, k_d=0.0)]
@@ -298,10 +298,6 @@ class TestDeadbandMixin(unittest.TestCase):
         pid(10.0)  # error = 0, output = 0
         output = pid(9.5)  # error = 0.5, raw output = 0.5, within deadband -> held
         self.assertAlmostEqual(output, 0.0)
-
-
-class DitheredPID(DitherMixin, PID):
-    pass
 
 
 class DitheredGainSchedulerPID(DitherMixin, PIDGainScheduler):

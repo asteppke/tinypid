@@ -278,14 +278,15 @@ class FeedforwardMixin:
 
     Usage::
 
-        class FeedforwardPID(FeedforwardMixin, PID):
-            pass
+        controller = FeedforwardPID(k_p=1.0, k_i=0.1, k_ff=0.5)
+        output = controller(process_variable=3.0, feedforward=setpoint_velocity)
+
+    A ready-made :class:`FeedforwardPID` is provided for this common case.
+    To combine the mixin with other controllers (e.g. :class:`PIDGainScheduler`),
+    subclass it directly::
 
         class FeedforwardGainSchedulerPID(FeedforwardMixin, PIDGainScheduler):
             pass
-
-        controller = FeedforwardPID(k_p=1.0, k_i=0.1, k_ff=0.5)
-        output = controller(process_variable=3.0, feedforward=setpoint_velocity)
     """
 
     def __init__(self, *args, k_ff: float = 1.0, **kwargs) -> None:
@@ -330,14 +331,15 @@ class RateLimitMixin:
 
     Usage::
 
-        class RateLimitedPID(RateLimitMixin, PID):
-            pass
+        controller = RateLimitedPID(k_p=1.0, dt=0.1, max_output_rate=2.0)
+        output = controller(process_variable=3.0)
+
+    A ready-made :class:`RateLimitedPID` is provided for this common case.
+    To combine the mixin with other controllers (e.g. :class:`PIDGainScheduler`),
+    subclass it directly::
 
         class RateLimitedGainSchedulerPID(RateLimitMixin, PIDGainScheduler):
             pass
-
-        controller = RateLimitedPID(k_p=1.0, dt=0.1, max_output_rate=2.0)
-        output = controller(process_variable=3.0)
     """
 
     def __init__(self, *args, max_output_rate: float | None = None, **kwargs) -> None:
@@ -345,7 +347,7 @@ class RateLimitMixin:
         if max_output_rate is not None and max_output_rate <= 0:
             raise ValueError("max_output_rate must be positive.")
         self.max_output_rate = max_output_rate
-        self._previous_output: float | None = None
+        self._rate_limited_output: float | None = None
 
     def reset(self) -> None:
         """
@@ -353,7 +355,7 @@ class RateLimitMixin:
         remembered previous output used for rate limiting.
         """
         super().reset()
-        self._previous_output = None
+        self._rate_limited_output = None
 
     def _rate_limit(self, output: float) -> tuple[bool, float]:
         """
@@ -366,14 +368,14 @@ class RateLimitMixin:
             tuple: A tuple containing a boolean indicating whether rate
                    saturation occurred and the rate-limited output.
         """
-        if self.max_output_rate is None or self._previous_output is None:
+        if self.max_output_rate is None or self._rate_limited_output is None:
             return False, output
 
         max_delta = self.max_output_rate * self.dt
-        delta = output - self._previous_output
+        delta = output - self._rate_limited_output
         limited_delta = min(max(delta, -max_delta), max_delta)
 
-        return limited_delta != delta, self._previous_output + limited_delta
+        return limited_delta != delta, self._rate_limited_output + limited_delta
 
     def __call__(
         self,
@@ -401,7 +403,7 @@ class RateLimitMixin:
                 # Don't let the integral keep growing if the output can't follow due to the rate limit
                 self._rewind_integral(self._previous_error)
 
-        self._previous_output = output
+        self._rate_limited_output = output
         return output
 
 
@@ -418,14 +420,15 @@ class DeadbandMixin:
 
     Usage::
 
-        class DeadbandPID(DeadbandMixin, PID):
-            pass
+        controller = DeadbandPID(k_p=1.0, k_i=0.1, output_deadband=0.05)
+        output = controller(process_variable=3.0)
+
+    A ready-made :class:`DeadbandPID` is provided for this common case.
+    To combine the mixin with other controllers (e.g. :class:`PIDGainScheduler`),
+    subclass it directly::
 
         class DeadbandGainSchedulerPID(DeadbandMixin, PIDGainScheduler):
             pass
-
-        controller = DeadbandPID(k_p=1.0, k_i=0.1, output_deadband=0.05)
-        output = controller(process_variable=3.0)
     """
 
     def __init__(self, *args, output_deadband: float | None = None, **kwargs) -> None:
@@ -433,7 +436,7 @@ class DeadbandMixin:
         if output_deadband is not None and output_deadband < 0:
             raise ValueError("output_deadband must not be negative.")
         self.output_deadband = output_deadband
-        self._previous_output: float | None = None
+        self._deadband_output: float | None = None
 
     def reset(self) -> None:
         """
@@ -441,7 +444,7 @@ class DeadbandMixin:
         remembered previous output used by the dead-band.
         """
         super().reset()
-        self._previous_output = None
+        self._deadband_output = None
 
     def __call__(self, process_variable: float, **kwargs) -> float:
         """
@@ -454,12 +457,12 @@ class DeadbandMixin:
 
         if (
             self.output_deadband is not None
-            and self._previous_output is not None
-            and abs(output - self._previous_output) <= self.output_deadband
+            and self._deadband_output is not None
+            and abs(output - self._deadband_output) <= self.output_deadband
         ):
-            return self._previous_output
+            return self._deadband_output
 
-        self._previous_output = output
+        self._deadband_output = output
         return output
 
 
@@ -479,11 +482,15 @@ class DitherMixin:
 
     Usage::
 
-        class DitheredPID(DitherMixin, PID):
-            pass
-
         controller = DitheredPID(k_p=1.0, k_i=0.1, output_dither=0.1)
         output = controller(process_variable=3.0)
+
+    A ready-made :class:`DitheredPID` is provided for this common case.
+    To combine the mixin with other controllers (e.g. :class:`PIDGainScheduler`),
+    subclass it directly::
+
+        class DitheredGainSchedulerPID(DitherMixin, PIDGainScheduler):
+            pass
     """
 
     def __init__(self, *args, output_dither: float | None = None, dither_seed: int | None = None, **kwargs) -> None:
@@ -506,3 +513,31 @@ class DitherMixin:
             output += self._dither_rng.uniform(-self.output_dither / 2, self.output_dither / 2)
 
         return output
+
+
+class FeedforwardPID(FeedforwardMixin, PID):
+    """
+    A ready-to-use PID controller with a feedforward component.
+    See :class:`FeedforwardMixin` for details.
+    """
+
+
+class RateLimitedPID(RateLimitMixin, PID):
+    """
+    A ready-to-use PID controller with output rate limiting.
+    See :class:`RateLimitMixin` for details.
+    """
+
+
+class DeadbandPID(DeadbandMixin, PID):
+    """
+    A ready-to-use PID controller with an output dead-band.
+    See :class:`DeadbandMixin` for details.
+    """
+
+
+class DitheredPID(DitherMixin, PID):
+    """
+    A ready-to-use PID controller with output dithering.
+    See :class:`DitherMixin` for details.
+    """
