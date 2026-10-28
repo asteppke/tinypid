@@ -1,7 +1,10 @@
 [![Pytest and Linter](https://github.com/asteppke/tinypid/actions/workflows/python-app.yml/badge.svg)](https://github.com/asteppke/tinypid/actions/workflows/python-app.yml)
 
 # Tiny PID
-Minimal, dependency-free PID controller for Python (>=3.8).
+Minimal, dependency-free PID controller for Python.
+
+![PID control example](examples/control_example.png)
+
 
 ## Installation
 Not (yet) published on PyPI. Install directly from this repository:
@@ -138,7 +141,6 @@ controller(10.0)  # error = 0, establishes the previous output
 output = controller(0.0, feedforward=1.0)  # raw output is far above the deadband, rate-limited to a change of 2.0
 ````
 
-![PID control example](examples/control_example.png)
 
 ## License
 MIT, see [LICENSE](LICENSE).
