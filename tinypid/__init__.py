@@ -1,1 +1,1 @@
-from .pid import PID, Gain, PIDGainScheduler, FeedforwardMixin, RateLimitMixin, DeadbandMixin
+from .pid import PID, Gain, PIDGainScheduler, FeedforwardMixin, RateLimitMixin, DeadbandMixin, DitherMixin

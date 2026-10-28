@@ -13,6 +13,7 @@ output = controller(10)
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 
 
@@ -459,4 +460,49 @@ class DeadbandMixin:
             return self._previous_output
 
         self._previous_output = output
+        return output
+
+
+class DitherMixin:
+    """
+    A mixin that adds a small pseudo-random perturbation (dither) to the
+    output, e.g. to improve the effective resolution of a quantized
+    actuator (a stepper motor, a digital output, ...) by randomizing the
+    rounding error instead of letting it accumulate systematically.
+
+    The dither value is drawn uniformly from
+    ``[-output_dither / 2, output_dither / 2]`` and added to the output
+    *after* all other processing (limiting, rate limiting, dead-band, ...),
+    so it does not affect the controller's internal state (``integral``,
+    anti-windup, etc.). Note that the dithered output may therefore exceed
+    ``upper_limit``/``lower_limit`` by up to ``output_dither / 2``.
+
+    Usage::
+
+        class DitheredPID(DitherMixin, PID):
+            pass
+
+        controller = DitheredPID(k_p=1.0, k_i=0.1, output_dither=0.1)
+        output = controller(process_variable=3.0)
+    """
+
+    def __init__(self, *args, output_dither: float | None = None, dither_seed: int | None = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        if output_dither is not None and output_dither < 0:
+            raise ValueError("output_dither must not be negative.")
+        self.output_dither = output_dither
+        self._dither_rng = random.Random(dither_seed)
+
+    def __call__(self, process_variable: float, **kwargs) -> float:
+        """
+        Parameters:
+            process_variable : The current value of the process variable.
+            **kwargs : Passed through to the underlying PID ``__call__``
+                       (``manual_output``, ``anti_windup``, ``feedforward``).
+        """
+        output = super().__call__(process_variable, **kwargs)  # type: ignore[misc]
+
+        if self.output_dither:
+            output += self._dither_rng.uniform(-self.output_dither / 2, self.output_dither / 2)
+
         return output

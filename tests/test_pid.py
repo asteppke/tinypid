@@ -1,5 +1,5 @@
 import unittest
-from tinypid import PID, Gain, PIDGainScheduler, FeedforwardMixin, RateLimitMixin, DeadbandMixin
+from tinypid import PID, Gain, PIDGainScheduler, FeedforwardMixin, RateLimitMixin, DeadbandMixin, DitherMixin
 
 
 class TestPID(unittest.TestCase):
@@ -298,6 +298,59 @@ class TestDeadbandMixin(unittest.TestCase):
         pid(10.0)  # error = 0, output = 0
         output = pid(9.5)  # error = 0.5, raw output = 0.5, within deadband -> held
         self.assertAlmostEqual(output, 0.0)
+
+
+class DitheredPID(DitherMixin, PID):
+    pass
+
+
+class DitheredGainSchedulerPID(DitherMixin, PIDGainScheduler):
+    pass
+
+
+class TestDitherMixin(unittest.TestCase):
+    def test_dither_rejects_negative_output_dither(self):
+        with self.assertRaises(ValueError):
+            DitheredPID(k_p=1.0, k_i=0.0, k_d=0.0, output_dither=-0.1)
+
+    def test_dither_disabled_by_default(self):
+        # Without output_dither the mixin must behave identically to a plain PID.
+        plain = PID(k_p=1.0, k_i=0.5, k_d=0.0, setpoint=10.0, dt=1.0)
+        dithered = DitheredPID(k_p=1.0, k_i=0.5, k_d=0.0, setpoint=10.0, dt=1.0)
+        self.assertAlmostEqual(dithered(8.0), plain(8.0))
+        self.assertAlmostEqual(dithered(8.0), plain(8.0))
+
+    def test_dither_stays_within_amplitude(self):
+        pid = DitheredPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, output_dither=0.2, dither_seed=42)
+        for _ in range(50):
+            output = pid(8.0)  # undithered output = 2.0
+            self.assertGreaterEqual(output, 2.0 - 0.1)
+            self.assertLessEqual(output, 2.0 + 0.1)
+
+    def test_dither_is_reproducible_with_seed(self):
+        pid_a = DitheredPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, output_dither=0.2, dither_seed=7)
+        pid_b = DitheredPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, output_dither=0.2, dither_seed=7)
+        outputs_a = [pid_a(8.0) for _ in range(10)]
+        outputs_b = [pid_b(8.0) for _ in range(10)]
+        self.assertEqual(outputs_a, outputs_b)
+
+    def test_dither_varies_across_calls(self):
+        pid = DitheredPID(k_p=1.0, k_i=0.0, k_d=0.0, setpoint=10.0, dt=1.0, output_dither=0.2, dither_seed=1)
+        outputs = {pid(8.0) for _ in range(20)}
+        self.assertGreater(len(outputs), 1)
+
+    def test_dither_does_not_affect_integral(self):
+        # The dither is added after the PID computation and must not leak into state.
+        pid = DitheredPID(k_p=0.0, k_i=1.0, k_d=0.0, setpoint=10.0, dt=1.0, output_dither=0.2, dither_seed=1)
+        pid(0.0)  # error = 10, integral = 10
+        self.assertAlmostEqual(pid.integral, 10.0)
+
+    def test_dither_composes_with_gain_scheduler(self):
+        gains = [Gain(setpoint_scope=(0, 20), k_p=1.0, k_i=0.0, k_d=0.0)]
+        pid = DitheredGainSchedulerPID(gains=gains, setpoint=10.0, dt=1.0, output_dither=0.2, dither_seed=42)
+        output = pid(8.0)  # undithered output = 2.0
+        self.assertGreaterEqual(output, 2.0 - 0.1)
+        self.assertLessEqual(output, 2.0 + 0.1)
 
 
 if __name__ == "__main__":

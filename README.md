@@ -12,9 +12,9 @@ Optional features:
 - Feed forward component
 - Output rate limiting
 - Output dead-band (hold the previous output for small changes, e.g. to reduce motor noise)
+- Output dithering (add small pseudo-random noise to improve effective resolution on quantized actuators)
 
 ![PID control example](examples/control_example.png)
 
 ## Future ideas
-- Output dithering
 - Beyond gain scheduling also schedule, limits, and anti-windup
