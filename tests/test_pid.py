@@ -1,12 +1,11 @@
 import unittest
 from tinypid import (
+    PIDCore,
+    LimitedPID,
     PID,
     Gain,
     PIDGainScheduler,
-    FeedforwardMixin,
     RateLimitMixin,
-    DeadbandMixin,
-    DitherMixin,
     FeedforwardPID,
     RateLimitedPID,
     DeadbandPID,
@@ -14,7 +13,41 @@ from tinypid import (
 )
 
 
+class RateLimitedCore(RateLimitMixin, LimitedPID):
+    pass
+
+
 class TestPID(unittest.TestCase):
+    def test_pid_core_does_not_limit_output_or_apply_anti_windup(self):
+        pid = PIDCore(k_p=0.0, k_i=1.0, setpoint=10.0)
+        self.assertAlmostEqual(pid(0.0), 10.0)
+        self.assertAlmostEqual(pid(0.0), 20.0)
+
+    def test_limited_pid_applies_output_limit_and_anti_windup(self):
+        pid = LimitedPID(k_p=0.0, k_i=1.0, setpoint=10.0, upper_limit=5.0)
+        self.assertAlmostEqual(pid(0.0), 5.0)
+        self.assertAlmostEqual(pid.integral, 0.0)
+
+    def test_pid_combines_all_optional_features(self):
+        pid = PID(
+            k_p=10.0,
+            k_i=0.0,
+            k_d=0.0,
+            setpoint=10.0,
+            upper_limit=50.0,
+            max_output_rate=2.0,
+            output_deadband=0.5,
+            output_dither=0.0,
+            k_ff=1.0,
+        )
+        self.assertAlmostEqual(pid(10.0), 0.0)
+        self.assertAlmostEqual(pid(0.0, feedforward=1.0), 2.0)
+
+    def test_mixins_compose_with_limited_pid(self):
+        pid = RateLimitedCore(k_p=10.0, setpoint=10.0, max_output_rate=2.0)
+        pid(10.0)
+        self.assertAlmostEqual(pid(0.0), 2.0)
+
     def test_output_with_no_manual_output(self):
         pid = PID(k_p=1.0, k_i=0.5, k_d=0.2, setpoint=10.0, dt=0.1)
         process_variable = 8.0
@@ -134,7 +167,7 @@ class TestGainSchedule(unittest.TestCase):
             pid.update_gains_from_setpoint(40)
 
 
-class FeedforwardGainSchedulerPID(FeedforwardMixin, PIDGainScheduler):
+class FeedforwardGainSchedulerPID(PIDGainScheduler):
     pass
 
 
@@ -172,7 +205,7 @@ class TestFeedforwardMixin(unittest.TestCase):
         self.assertAlmostEqual(output, 5.0)
 
 
-class RateLimitedGainSchedulerPID(RateLimitMixin, PIDGainScheduler):
+class RateLimitedGainSchedulerPID(PIDGainScheduler):
     pass
 
 
@@ -241,7 +274,7 @@ class TestRateLimitMixin(unittest.TestCase):
         self.assertAlmostEqual(output, 2.0)
 
 
-class DeadbandGainSchedulerPID(DeadbandMixin, PIDGainScheduler):
+class DeadbandGainSchedulerPID(PIDGainScheduler):
     pass
 
 
@@ -300,7 +333,7 @@ class TestDeadbandMixin(unittest.TestCase):
         self.assertAlmostEqual(output, 0.0)
 
 
-class DitheredGainSchedulerPID(DitherMixin, PIDGainScheduler):
+class DitheredGainSchedulerPID(PIDGainScheduler):
     pass
 
 

@@ -28,6 +28,12 @@ value = 10
 output = controller(value)
 ````
 
+## Controller classes
+- `PIDCore` contains the shared PID calculation and state, without output limiting.
+- `LimitedPID` adds absolute output limits and saturation anti-windup.
+- `PID` builds on `LimitedPID` and includes all optional feature mixins. Their
+  behaviors remain disabled unless enabled with their corresponding options.
+
 ## Optional features
 - [Output limiting](#output-limiting)
 - [Anti-windup mechanism](#anti-windup-mechanism)
@@ -130,16 +136,28 @@ output = controller(8.0)  # undithered output is 2.0, dithered output varies wit
 ````
 
 ### Combining multiple features
-Mixins compose freely, so a custom controller can combine several of the features above by subclassing them together with `PID` (or `PIDGainScheduler`).
+`PID` and `PIDGainScheduler` include all the optional feature mixins, so their
+features can be combined through constructor options without creating another
+subclass:
 ````
-class CustomPID(tinypid.RateLimitMixin, tinypid.DeadbandMixin, tinypid.FeedforwardMixin, tinypid.PID):
-    pass
-
-controller = CustomPID(k_p=10.0, setpoint=10.0, max_output_rate=2.0, output_deadband=0.5, k_ff=0.1)
+controller = tinypid.PID(
+    k_p=10.0,
+    setpoint=10.0,
+    upper_limit=100.0,
+    max_output_rate=2.0,
+    output_deadband=0.5,
+    k_ff=0.1,
+    output_dither=0.2,
+    dither_seed=1,
+)
 
 controller(10.0)  # error = 0, establishes the previous output
-output = controller(0.0, feedforward=1.0)  # raw output is far above the deadband, rate-limited to a change of 2.0
+output = controller(0.0, feedforward=1.0)  # output passes through limiting, dead-band, and dither
 ````
+
+For a custom controller with a different feature combination, compose mixins
+with `LimitedPID` (or `PIDCore` when output limiting is not needed) rather than
+with `PID`, which already includes those mixins.
 
 
 ## License

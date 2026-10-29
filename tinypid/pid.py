@@ -30,14 +30,12 @@ class Gain:
     k_d: float
 
 
-class PID:
+DEFAULT_ANTI_WINDUP = True
+
+
+class PIDMinimal:
     """
-    A simple Proportional-Integral-Derivative controller
-    with optional
-        - output limiting
-        - anti-windup mechanism
-        - lowpass filtering of derivative component
-        - bumpless transfer
+    The minimal Proportional-Integral-Derivative calculation and state.
     """
 
     def __init__(
@@ -47,9 +45,6 @@ class PID:
         k_d: float = 0.0,
         setpoint: float = 0.0,
         dt: float = 1.0,
-        derivative_lowpass: float = 1.0,
-        upper_limit: float | None = None,
-        lower_limit: float | None = None,
     ) -> None:
         """
         Initialize PID controller
@@ -59,27 +54,19 @@ class PID:
             k_i : Integral gain
             k_d : Derivative gain
             dt : Time step
-            derivative_lowpass: lowpass constant (between 1 and 0, 1 meaning no lowpass)
-            upper_limit : Upper limit for the output
-            lower_limit : Lower limit for the output
+            setpoint : Initial setpoint
         """
         if dt <= 0:
             raise ValueError("Time step (dt) must be positive.")
-        if not 0 <= derivative_lowpass <= 1:
-            raise ValueError("derivative_lowpass must be between 0 and 1")
 
         self.k_p = k_p
         self.k_i = k_i
         self.k_d = k_d
-        self.P, self.I, self.D, self.FF = 0.0, 0.0, 0.0, 0.0
+        self.P, self.I, self.D = 0.0, 0.0, 0.0
         self.dt = dt
-        self.alpha = derivative_lowpass
         self._setpoint = setpoint
         self.integral = 0.0
         self._previous_error = 0.0
-        self._previous_derivative = 0.0
-        self.upper_limit = upper_limit
-        self.lower_limit = lower_limit
 
     def reset(self) -> None:
         """
@@ -87,7 +74,6 @@ class PID:
         """
         self.integral = 0.0
         self._previous_error = 0.0
-        self._previous_derivative = 0.0
 
     @property
     def setpoint(self) -> float:
@@ -106,35 +92,6 @@ class PID:
         """
         self._setpoint = value
         self._previous_error = 0.0
-        self._previous_derivative = 0.0
-
-
-    def _feedforward(self) -> float:
-        """
-        Compute the feedforward term. Returns 0.0 by default.
-        Override in subclasses or via FeedforwardMixin.
-        """
-        return 0.0
-
-    def _limit(self, output: float) -> tuple[bool, float]:
-        """
-        Limits the output to the specified bounds.
-
-        Parameters:
-            output : The given output.
-
-        Returns:
-            tuple: A tuple containing a boolean indicating whether saturation occurred
-                   and the limited output.
-        """
-        unlimited = output
-        if self.upper_limit is not None:
-            output = min(output, self.upper_limit)
-        if self.lower_limit is not None:
-            output = max(output, self.lower_limit)
-        saturated = output != unlimited
-
-        return saturated, output
 
     def update_gains(self, k_p: float, k_i: float, k_d: float) -> None:
         """
@@ -149,6 +106,105 @@ class PID:
         self.k_i = k_i
         self.k_d = k_d
 
+    def _call(
+        self,
+        process_variable: float,
+        manual_output: float | None,
+    ) -> float:
+        """
+        Process the input signal and return the controller output.
+
+        Parameters:
+            process_variable : The current value of the process variable.
+            manual_output: Manually controlled output value (optional).
+        """
+
+        error = self._setpoint - process_variable
+        self.integral += error * self.dt
+        derivative = (error - self._previous_error) / self.dt
+
+        self._previous_error = error
+
+        self.P = self.k_p * error
+        self.I = self.k_i * self.integral
+        self.D = self.k_d * derivative
+
+        output = self.P + self.I + self.D
+
+        if manual_output is not None:
+            output = manual_output
+
+        return output
+
+    def __repr__(self) -> str:
+        return (
+            f"PID controller\nSetpoint: {self.setpoint}, Unlimited output: {self.P + self.I + self.D}\n"
+            f"P: {self.P}, I: {self.I}, D: {self.D}"
+        )
+
+
+class PIDCore(PIDMinimal):
+    """
+    The shared Proportional-Integral-Derivative calculation and state.
+    """
+
+    def __init__(
+        self,
+        k_p: float = 1.0,
+        k_i: float = 0.1,
+        k_d: float = 0.0,
+        setpoint: float = 0.0,
+        dt: float = 1.0,
+        derivative_lowpass: float = 1.0,
+    ) -> None:
+        """
+        Initialize PID controller
+
+        Parameters:
+            k_p : Proportional gain
+            k_i : Integral gain
+            k_d : Derivative gain
+            dt : Time step
+            derivative_lowpass: lowpass constant (between 1 and 0, 1 meaning no lowpass)
+        """
+        if not 0 <= derivative_lowpass <= 1:
+            raise ValueError("derivative_lowpass must be between 0 and 1")
+
+        super().__init__(k_p, k_i, k_d, setpoint, dt)
+        self.FF = 0.0
+        self.alpha = derivative_lowpass
+        self._previous_derivative = 0.0
+
+    def reset(self) -> None:
+        """
+        Clear the history and reset the controller state.
+        """
+        super().reset()
+        self._previous_derivative = 0.0
+
+    @PIDMinimal.setpoint.setter
+    def setpoint(self, value: float) -> None:
+        """
+        Set the setpoint and reset the controller state to avoid derivative kick and integral windup.
+
+        Parameters:
+            value : The new setpoint.
+        """
+        self._setpoint = value
+        self._previous_error = 0.0
+        self._previous_derivative = 0.0
+
+    def _feedforward(self) -> float:
+        """
+        Compute the feedforward term. Returns 0.0 by default.
+        Override in subclasses or via FeedforwardMixin.
+        """
+        return 0.0
+
+    def _process_output(self, output: float, error: float, anti_windup: bool) -> float:
+        """Hook for subclasses to apply output policies after PID calculation."""
+        return output
+
     def _rewind_integral(self, error: float) -> None:
         """
         Undo one integration step to counteract windup.
@@ -162,7 +218,7 @@ class PID:
         self,
         process_variable: float,
         manual_output: float | None = None,
-        anti_windup: bool = True,
+        anti_windup: bool = DEFAULT_ANTI_WINDUP,
     ) -> float:
         """
         Process the input signal and return the controller output.
@@ -170,7 +226,7 @@ class PID:
         Parameters:
             process_variable : The current value of the process variable.
             manual_output: Manually controlled output value (optional).
-            anti_windup : Whether to enable anti-windup mechanism.
+            anti_windup : Whether output saturation may rewind the integral.
         """
 
         error = self._setpoint - process_variable
@@ -182,16 +238,11 @@ class PID:
         self.D = self.k_d * (self.alpha * derivative + (1 - self.alpha) * self._previous_derivative)
         self.FF = self._feedforward()
 
-        output = self.P + self.I + self.D + self.FF
-
         self._previous_error = error
         self._previous_derivative = derivative
 
-        saturated, output = self._limit(output)
-
-        if saturated and anti_windup:
-            # Don't increase integral if we are saturated
-            self._rewind_integral(error)
+        output = self.P + self.I + self.D + self.FF
+        output = self._process_output(output, error, anti_windup)
 
         if manual_output is not None:
             # Use setpoint tracking by calculating integral so that the output matches the manual setpoint
@@ -203,69 +254,48 @@ class PID:
     def __repr__(self) -> str:
         return (
             f"PID controller\nSetpoint: {self.setpoint}, Unlimited output: {self.P + self.I + self.D + self.FF}\n"
-            f"P: {self.P}, I: {self.I}, D: {self.D}, FF: {self.FF}\n"
-            f"Limits: {self.lower_limit} < output < {self.upper_limit}"
+            f"P: {self.P}, I: {self.I}, D: {self.D}, FF: {self.FF}"
         )
 
 
-class PIDGainScheduler(PID):
-    """
-    An extended Proportional-Integral-Derivative controller that uses
-    gain scheduling to allow different gains, i.e., k_p, k_i, and k_d depending on
-    the setpoint.
-
-    """
+class LimitedPID(PIDCore):
+    """PID core with absolute output limits and saturation anti-windup."""
 
     def __init__(
         self,
-        gains: list[Gain],
+        k_p: float = 1.0,
+        k_i: float = 0.1,
+        k_d: float = 0.0,
         setpoint: float = 0.0,
         dt: float = 1.0,
         derivative_lowpass: float = 1.0,
         upper_limit: float | None = None,
         lower_limit: float | None = None,
     ) -> None:
-        """
-        Initialize PID controller
+        super().__init__(k_p, k_i, k_d, setpoint, dt, derivative_lowpass)
+        self.upper_limit = upper_limit
+        self.lower_limit = lower_limit
 
-        Parameters:
-            gains : List of Gain objects
-            setpoint : The setpoint
-            dt : Time step
-            derivative_lowpass: lowpass constant (between 1 and 0, 1 meaning no lowpass)
-            upper_limit : Upper limit for the output
-            lower_limit : Lower limit for the output
-        """
+    def _limit(self, output: float) -> tuple[bool, float]:
+        unlimited = output
+        if self.upper_limit is not None:
+            output = min(output, self.upper_limit)
+        if self.lower_limit is not None:
+            output = max(output, self.lower_limit)
+        return output != unlimited, output
 
-        super().__init__(0.0, 0.0, 0.0, setpoint, dt, derivative_lowpass, upper_limit, lower_limit)
+    def _process_output(self, output: float, error: float, anti_windup: bool) -> float:
+        saturated, output = self._limit(output)
+        if saturated and anti_windup:
+            self._rewind_integral(error)
+        return output
 
-        self.gains = gains
-        self.update_gains_from_setpoint(setpoint)
-
-    def update_gains_from_setpoint(self, setpoint: float) -> None:
-        """
-        Update the PID gains based on the current setpoint
-
-        Parameters:
-            setpoint : The current setpoint to find gains for
-        """
-        for gain in self.gains:
-            lower, upper = gain.setpoint_scope
-            if lower <= setpoint < upper:
-                self.k_p, self.k_i, self.k_d = gain.k_p, gain.k_i, gain.k_d
-                break
-        else:
-            raise ValueError("No gain found for the given setpoint.")
-
-    def __call__(
-        self,
-        process_variable: float,
-        manual_output: float | None = None,
-        anti_windup: bool = True,
-    ) -> float:
-        self.update_gains_from_setpoint(self.setpoint)
-
-        return super().__call__(process_variable, manual_output=manual_output, anti_windup=anti_windup)
+    def __repr__(self) -> str:
+        return (
+            f"PID controller\nSetpoint: {self.setpoint}, Unlimited output: {self.P + self.I + self.D + self.FF}\n"
+            f"P: {self.P}, I: {self.I}, D: {self.D}, FF: {self.FF}\n"
+            f"Limits: {self.lower_limit} < output < {self.upper_limit}"
+        )
 
 
 class FeedforwardMixin:
@@ -282,10 +312,11 @@ class FeedforwardMixin:
         output = controller(process_variable=3.0, feedforward=setpoint_velocity)
 
     A ready-made :class:`FeedforwardPID` is provided for this common case.
-    To combine the mixin with other controllers (e.g. :class:`PIDGainScheduler`),
-    subclass it directly::
+    :class:`PID` and :class:`PIDGainScheduler` already include this feature.
+    For a custom controller based on :class:`LimitedPID`, subclass the mixin
+    with that class::
 
-        class FeedforwardGainSchedulerPID(FeedforwardMixin, PIDGainScheduler):
+        class CustomLimitedPID(FeedforwardMixin, LimitedPID):
             pass
     """
 
@@ -335,10 +366,11 @@ class RateLimitMixin:
         output = controller(process_variable=3.0)
 
     A ready-made :class:`RateLimitedPID` is provided for this common case.
-    To combine the mixin with other controllers (e.g. :class:`PIDGainScheduler`),
-    subclass it directly::
+    :class:`PID` and :class:`PIDGainScheduler` already include this feature.
+    For a custom controller based on :class:`LimitedPID`, subclass the mixin
+    with that class::
 
-        class RateLimitedGainSchedulerPID(RateLimitMixin, PIDGainScheduler):
+        class CustomRateLimitedPID(RateLimitMixin, LimitedPID):
             pass
     """
 
@@ -381,7 +413,7 @@ class RateLimitMixin:
         self,
         process_variable: float,
         manual_output: float | None = None,
-        anti_windup: bool = True,
+        anti_windup: bool = DEFAULT_ANTI_WINDUP,
         **kwargs,
     ) -> float:
         """
@@ -424,10 +456,11 @@ class DeadbandMixin:
         output = controller(process_variable=3.0)
 
     A ready-made :class:`DeadbandPID` is provided for this common case.
-    To combine the mixin with other controllers (e.g. :class:`PIDGainScheduler`),
-    subclass it directly::
+    :class:`PID` and :class:`PIDGainScheduler` already include this feature.
+    For a custom controller based on :class:`LimitedPID`, subclass the mixin
+    with that class::
 
-        class DeadbandGainSchedulerPID(DeadbandMixin, PIDGainScheduler):
+        class CustomDeadbandPID(DeadbandMixin, LimitedPID):
             pass
     """
 
@@ -486,10 +519,11 @@ class DitherMixin:
         output = controller(process_variable=3.0)
 
     A ready-made :class:`DitheredPID` is provided for this common case.
-    To combine the mixin with other controllers (e.g. :class:`PIDGainScheduler`),
-    subclass it directly::
+    :class:`PID` and :class:`PIDGainScheduler` already include this feature.
+    For a custom controller based on :class:`LimitedPID`, subclass the mixin
+    with that class::
 
-        class DitheredGainSchedulerPID(DitherMixin, PIDGainScheduler):
+        class CustomDitheredPID(DitherMixin, LimitedPID):
             pass
     """
 
@@ -515,28 +549,74 @@ class DitherMixin:
         return output
 
 
-class FeedforwardPID(FeedforwardMixin, PID):
+class PID(DitherMixin, DeadbandMixin, RateLimitMixin, FeedforwardMixin, LimitedPID):
+    """Full-featured PID controller with optional mixin features.
+
+    Feedforward, rate limiting, dead-band, and dithering are disabled unless
+    their corresponding constructor options are provided.
+    """
+
+
+class PIDGainScheduler(PID):
+    """
+    An extended PID controller that selects gains based on the setpoint.
+    It supports the same optional features and constructor options as :class:`PID`.
+    """
+
+    def __init__(
+        self,
+        gains: list[Gain],
+        setpoint: float = 0.0,
+        dt: float = 1.0,
+        derivative_lowpass: float = 1.0,
+        upper_limit: float | None = None,
+        lower_limit: float | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            0.0, 0.0, 0.0, setpoint, dt, derivative_lowpass, upper_limit, lower_limit, **kwargs
+        )
+
+        self.gains = gains
+        self.update_gains_from_setpoint(setpoint)
+
+    def update_gains_from_setpoint(self, setpoint: float) -> None:
+        """Update the PID gains to match the supplied setpoint."""
+        for gain in self.gains:
+            lower, upper = gain.setpoint_scope
+            if lower <= setpoint < upper:
+                self.k_p, self.k_i, self.k_d = gain.k_p, gain.k_i, gain.k_d
+                break
+        else:
+            raise ValueError("No gain found for the given setpoint.")
+
+    def __call__(self, process_variable: float, **kwargs) -> float:
+        self.update_gains_from_setpoint(self.setpoint)
+        return super().__call__(process_variable, **kwargs)
+
+
+class FeedforwardPID(FeedforwardMixin, LimitedPID):
     """
     A ready-to-use PID controller with a feedforward component.
     See :class:`FeedforwardMixin` for details.
     """
 
 
-class RateLimitedPID(RateLimitMixin, PID):
+class RateLimitedPID(RateLimitMixin, LimitedPID):
     """
     A ready-to-use PID controller with output rate limiting.
     See :class:`RateLimitMixin` for details.
     """
 
 
-class DeadbandPID(DeadbandMixin, PID):
+class DeadbandPID(DeadbandMixin, LimitedPID):
     """
     A ready-to-use PID controller with an output dead-band.
     See :class:`DeadbandMixin` for details.
     """
 
 
-class DitheredPID(DitherMixin, PID):
+class DitheredPID(DitherMixin, LimitedPID):
     """
     A ready-to-use PID controller with output dithering.
     See :class:`DitherMixin` for details.

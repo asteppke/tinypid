@@ -1,4 +1,7 @@
 from .pid import (
+    PIDMinimal,
+    PIDCore,
+    LimitedPID,
     PID,
     Gain,
     PIDGainScheduler,
