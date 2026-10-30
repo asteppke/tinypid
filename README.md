@@ -7,7 +7,13 @@ Minimal PID controller in Python.
 
 
 ## Installation
-Not (yet) published on PyPI. Install directly from this repository:
+
+Install from PyPI via: 
+````
+pip install tinypid
+````
+
+The development version can be installed directly from this repository:
 ````
 pip install git+https://github.com/asteppke/tinypid.git
 ````
@@ -25,7 +31,7 @@ uv sync --extra dev
 ````
 
 ## Quick start
-````
+````python
 import tinypid
 
 controller = tinypid.PID(k_p=1.0, k_i=0.1, k_d=0.0, setpoint=0.0)
@@ -54,7 +60,7 @@ output = controller(value)
 
 
 ### Output limiting
-````
+````python
 upper_limit = 10 
 lower_limit = -10
 controller = tinypid.PID(upper_limit=upper_limit, lower_limit=lower_limit)
@@ -70,7 +76,7 @@ for i in range(100):
 
 ### Anti-windup mechanism
 Prevents the integral term from accumulating further while the output is at the upper or lower limit. Enabled by default, can be disabled via `anti_windup=False`.
-````
+````python
 controller = tinypid.PID(k_p=10.0, k_i=1.0, setpoint=100.0, upper_limit=5.0, lower_limit=-5.0)
 
 for _ in range(5):
@@ -81,7 +87,7 @@ assert controller.integral == 0.0  # anti-windup (default) kept the integral fro
 
 ### Lowpass filtering of derivative component
 Smooths the derivative term to reduce sensitivity to noisy measurements. `derivative_lowpass` ranges from 0 (heavy filtering) to 1 (no filtering).
-````
+````python
 controller = tinypid.PID(k_d=1.0, setpoint=10.0, derivative_lowpass=0.2)
 
 for value in [8.0, 9.0, 7.0, 9.5]:
@@ -90,7 +96,7 @@ for value in [8.0, 9.0, 7.0, 9.5]:
 
 ### Bumpless transfer between manual and automatic control
 Passing `manual_output` back-calculates the integral so that control resumes smoothly when switching back to automatic mode.
-````
+````python
 controller = tinypid.PID(k_p=1.0, k_i=0.5, setpoint=10.0)
 
 output = controller(8.0, manual_output=5.0)  # operator takes manual control
@@ -99,7 +105,7 @@ output = controller(8.0)  # back to automatic, output continues from the manual 
 
 ### Gain scheduling
 Switches between sets of gains depending on which range the setpoint falls into.
-````
+````python
 gains = [
     tinypid.Gain(setpoint_scope=(0, 50), k_p=1.0, k_i=0.1, k_d=0.0),
     tinypid.Gain(setpoint_scope=(50, 100), k_p=2.0, k_i=0.2, k_d=0.0),
@@ -145,7 +151,7 @@ output = controller(8.0)  # undithered output is 2.0, dithered output varies wit
 `PID` and `PIDGainScheduler` include all the optional feature mixins, so their
 features can be combined through constructor options without creating another
 subclass:
-````
+````python
 controller = tinypid.PID(
     k_p=10.0,
     setpoint=10.0,
