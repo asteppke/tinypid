@@ -117,14 +117,14 @@ output = controller(0.0)  # uses the k_p=2.0, k_i=0.2 gains since setpoint falls
 
 ### Feed forward component
 Adds an external feedforward signal (e.g. a model output or setpoint velocity) to the controller output, scaled by `k_ff`.
-````
+````python
 controller = tinypid.FeedforwardPID(k_p=1.0, k_i=0.1, k_ff=0.5, setpoint=10.0)
 output = controller(process_variable=8.0, feedforward=4.0)
 ````
 
 ### Output rate limiting
 Limits how fast the output may change per step (slew-rate limiting), independent of the absolute output limits.
-````
+````python
 controller = tinypid.RateLimitedPID(k_p=10.0, setpoint=10.0, max_output_rate=2.0)
 
 controller(10.0)  # error = 0, establishes the previous output
@@ -133,7 +133,7 @@ output = controller(0.0)  # raw output would be 100, but is limited to a change 
 
 ### Output dead-band
 Holds the previous output for small changes, e.g. to reduce actuator chatter or motor noise near steady state.
-````
+````python
 controller = tinypid.DeadbandPID(k_p=1.0, setpoint=10.0, output_deadband=1.0)
 
 controller(10.0)  # error = 0, output = 0
@@ -142,7 +142,7 @@ output = controller(9.5)  # raw output = 0.5, within the deadband -> held at 0.0
 
 ### Output dithering
 Adds small pseudo-random noise to the output to improve its effective resolution on quantized actuators (e.g. a stepper motor or digital output), by randomizing the rounding error instead of letting it accumulate systematically.
-````
+````python
 controller = tinypid.DitheredPID(k_p=1.0, setpoint=10.0, output_dither=0.2, dither_seed=1)
 output = controller(8.0)  # undithered output is 2.0, dithered output varies within +/- 0.1
 ````
