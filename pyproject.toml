@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tinypid"
-version = "0.7.2rc2"
+version = "0.7.2rc6"
 
 requires-python = ">=3.10"
 authors = [
