@@ -3,7 +3,7 @@
 # Tiny PID
 Minimal PID controller in Python.
 
-![PID control example](examples/control_example.png)
+![PID control example](https://raw.githubusercontent.com/asteppke/tinypid/main/examples/control_example.png)
 
 
 ## Installation
@@ -176,7 +176,7 @@ with `uv build` and publishes it to PyPI via Trusted Publishing. Make sure the
 `version` in [pyproject.toml](pyproject.toml) matches the tag before pushing it.
 
 ## More examples
-See [examples/Examples.ipynb](examples/Examples.ipynb) for a worked simulation that produces the plot above.
+See [examples/Examples.ipynb](https://github.com/asteppke/tinypid/blob/main/examples/Examples.ipynb) for a worked simulation that produces the plot above.
 
 ## Future ideas
 - Beyond gain scheduling also schedule, limits, and anti-windup
