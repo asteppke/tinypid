@@ -20,7 +20,7 @@ from dataclasses import dataclass
 @dataclass
 class Gain:
     """
-    A simple class to store PID gains and the setpoint range for which they apply.
+    A class to store PID gains and the setpoint range for which they apply.
     The range is inclusive of the lower bound and exclusive of the upper bound.
     """
 
@@ -106,10 +106,10 @@ class PIDMinimal:
         self.k_i = k_i
         self.k_d = k_d
 
-    def _call(
+    def __call__(
         self,
         process_variable: float,
-        manual_output: float | None,
+        manual_output: float | None = None,
     ) -> float:
         """
         Process the input signal and return the controller output.
@@ -527,7 +527,9 @@ class DitherMixin:
             pass
     """
 
-    def __init__(self, *args, output_dither: float | None = None, dither_seed: int | None = None, **kwargs) -> None:
+    def __init__(
+        self, *args, output_dither: float | None = None, dither_seed: int | None = None, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         if output_dither is not None and output_dither < 0:
             raise ValueError("output_dither must not be negative.")
@@ -547,52 +549,6 @@ class DitherMixin:
             output += self._dither_rng.uniform(-self.output_dither / 2, self.output_dither / 2)
 
         return output
-
-
-class PID(DitherMixin, DeadbandMixin, RateLimitMixin, FeedforwardMixin, LimitedPID):
-    """Full-featured PID controller with optional mixin features.
-
-    Feedforward, rate limiting, dead-band, and dithering are disabled unless
-    their corresponding constructor options are provided.
-    """
-
-
-class PIDGainScheduler(PID):
-    """
-    An extended PID controller that selects gains based on the setpoint.
-    It supports the same optional features and constructor options as :class:`PID`.
-    """
-
-    def __init__(
-        self,
-        gains: list[Gain],
-        setpoint: float = 0.0,
-        dt: float = 1.0,
-        derivative_lowpass: float = 1.0,
-        upper_limit: float | None = None,
-        lower_limit: float | None = None,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            0.0, 0.0, 0.0, setpoint, dt, derivative_lowpass, upper_limit, lower_limit, **kwargs
-        )
-
-        self.gains = gains
-        self.update_gains_from_setpoint(setpoint)
-
-    def update_gains_from_setpoint(self, setpoint: float) -> None:
-        """Update the PID gains to match the supplied setpoint."""
-        for gain in self.gains:
-            lower, upper = gain.setpoint_scope
-            if lower <= setpoint < upper:
-                self.k_p, self.k_i, self.k_d = gain.k_p, gain.k_i, gain.k_d
-                break
-        else:
-            raise ValueError("No gain found for the given setpoint.")
-
-    def __call__(self, process_variable: float, **kwargs) -> float:
-        self.update_gains_from_setpoint(self.setpoint)
-        return super().__call__(process_variable, **kwargs)
 
 
 class FeedforwardPID(FeedforwardMixin, LimitedPID):
@@ -621,3 +577,136 @@ class DitheredPID(DitherMixin, LimitedPID):
     A ready-to-use PID controller with output dithering.
     See :class:`DitherMixin` for details.
     """
+
+
+class PID(DitherMixin, DeadbandMixin, RateLimitMixin, FeedforwardMixin, LimitedPID):
+    """Full-featured PID controller with optional mixin features.
+
+    Feedforward, rate limiting, dead-band, and dithering are disabled unless
+    their corresponding constructor options are provided.
+    """
+
+    def __init__(
+        self,
+        k_p: float = 1.0,
+        k_i: float = 0.1,
+        k_d: float = 0.0,
+        setpoint: float = 0.0,
+        dt: float = 1.0,
+        derivative_lowpass: float = 1.0,
+        upper_limit: float | None = None,
+        lower_limit: float | None = None,
+        k_ff: float = 1.0,
+        max_output_rate: float | None = None,
+        output_deadband: float | None = None,
+        output_dither: float | None = None,
+        dither_seed: int | None = None,
+    ) -> None:
+        """
+        Initialize a full-featured PID controller.
+
+        Required/core parameters:
+            k_p : Proportional gain
+            k_i : Integral gain
+            k_d : Derivative gain
+            setpoint : Initial setpoint
+            dt : Time step, must be positive
+
+        Derivative filtering:
+            derivative_lowpass : Lowpass constant for the derivative term,
+                                  between 0 and 1 (1 means no filtering)
+
+        Output limiting (optional; set either bound to enable):
+            upper_limit : Maximum allowed output, or None to disable
+            lower_limit : Minimum allowed output, or None to disable
+
+        Feedforward (optional, see :class:`FeedforwardMixin`):
+            k_ff : Gain applied to the ``feedforward`` argument of ``__call__``
+
+        Rate limiting (optional, see :class:`RateLimitMixin`):
+            max_output_rate : Maximum allowed change in output per time step,
+                               or None to disable rate limiting
+
+        Dead-band (optional, see :class:`DeadbandMixin`):
+            output_deadband : Output changes smaller than this are suppressed,
+                               or None to disable the dead-band
+
+        Dithering (optional, see :class:`DitherMixin`):
+            output_dither : Amplitude of the pseudo-random perturbation added
+                             to the output, or None to disable dithering
+            dither_seed : Seed for the dither random number generator
+        """
+        super().__init__(
+            k_p,
+            k_i,
+            k_d,
+            setpoint,
+            dt,
+            derivative_lowpass,
+            upper_limit,
+            lower_limit,
+            k_ff=k_ff,
+            max_output_rate=max_output_rate,
+            output_deadband=output_deadband,
+            output_dither=output_dither,
+            dither_seed=dither_seed,
+        )
+
+
+class PIDGainScheduler(PID):
+    """
+    An extended PID controller that selects gains based on the setpoint.
+    It supports the same optional features and constructor options as :class:`PID`.
+    """
+
+    def __init__(
+        self,
+        gains: list[Gain],
+        setpoint: float = 0.0,
+        dt: float = 1.0,
+        derivative_lowpass: float = 1.0,
+        upper_limit: float | None = None,
+        lower_limit: float | None = None,
+        **kwargs,
+    ) -> None:
+        """
+        Initialize a gain-scheduled PID controller.
+
+        Required parameters:
+            gains : List of :class:`Gain` entries, each defining ``k_p``,
+                    ``k_i``, ``k_d`` and the setpoint range they apply to.
+                    The ranges must cover the controller's operating setpoints
+                    (inclusive of the lower bound, exclusive of the upper bound).
+            setpoint : Initial setpoint, used to select the initial gains
+
+        Core parameters:
+            dt : Time step, must be positive
+            derivative_lowpass : Lowpass constant for the derivative term,
+                                  between 0 and 1 (1 means no filtering)
+
+        Output limiting (optional; set either bound to enable):
+            upper_limit : Maximum allowed output, or None to disable
+            lower_limit : Minimum allowed output, or None to disable
+
+        Optional feature parameters (see :class:`PID`):
+            **kwargs : ``k_ff``, ``max_output_rate``, ``output_deadband``,
+                       ``output_dither``, ``dither_seed``
+        """
+        super().__init__(0.0, 0.0, 0.0, setpoint, dt, derivative_lowpass, upper_limit, lower_limit, **kwargs)
+
+        self.gains = gains
+        self.update_gains_from_setpoint(setpoint)
+
+    def update_gains_from_setpoint(self, setpoint: float) -> None:
+        """Update the PID gains to match the supplied setpoint."""
+        for gain in self.gains:
+            lower, upper = gain.setpoint_scope
+            if lower <= setpoint < upper:
+                self.k_p, self.k_i, self.k_d = gain.k_p, gain.k_i, gain.k_d
+                break
+        else:
+            raise ValueError("No gain found for the given setpoint.")
+
+    def __call__(self, process_variable: float, **kwargs) -> float:
+        self.update_gains_from_setpoint(self.setpoint)
+        return super().__call__(process_variable, **kwargs)

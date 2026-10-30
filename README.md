@@ -1,7 +1,7 @@
 [![Pytest and Linter](https://github.com/asteppke/tinypid/actions/workflows/python-app.yml/badge.svg)](https://github.com/asteppke/tinypid/actions/workflows/python-app.yml)
 
 # Tiny PID
-Minimal, dependency-free PID controller for Python.
+Minimal PID controller in Python.
 
 ![PID control example](examples/control_example.png)
 
@@ -16,6 +16,12 @@ or clone it and install in editable mode for local development:
 git clone https://github.com/asteppke/tinypid.git
 cd tinypid
 pip install -e .
+````
+or, using [uv](https://docs.astral.sh/uv/) (used in CI):
+````
+git clone https://github.com/asteppke/tinypid.git
+cd tinypid
+uv sync --extra dev
 ````
 
 ## Quick start
@@ -63,7 +69,7 @@ for i in range(100):
 ````
 
 ### Anti-windup mechanism
-Prevents the integral term from accumulating further while the output is saturated. Enabled by default, can be disabled via `anti_windup=False`.
+Prevents the integral term from accumulating further while the output is at the upper or lower limit. Enabled by default, can be disabled via `anti_windup=False`.
 ````
 controller = tinypid.PID(k_p=10.0, k_i=1.0, setpoint=100.0, upper_limit=5.0, lower_limit=-5.0)
 
@@ -162,6 +168,12 @@ with `PID`, which already includes those mixins.
 
 ## License
 MIT, see [LICENSE](LICENSE).
+
+## Releasing
+Pushing a tag matching `vX.Y.Z` (e.g. `v0.7.1`) triggers the
+[publish workflow](.github/workflows/publish.yml), which builds the package
+with `uv build` and publishes it to PyPI via Trusted Publishing. Make sure the
+`version` in [pyproject.toml](pyproject.toml) matches the tag before pushing it.
 
 ## More examples
 See [examples/Examples.ipynb](examples/Examples.ipynb) for a worked simulation that produces the plot above.
